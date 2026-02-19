@@ -1,5 +1,4 @@
 import os
-import base64
 import requests
 from googleapiclient.discovery import build
 import google.auth
@@ -7,28 +6,31 @@ from flask import Flask
 
 app = Flask(__name__)
 
-# トークンは環境変数から読み込む設定にしました（image_2c2520.pngの設定を活かします）
+# ★ここを光畑社長のメールアドレスに書き換えてください★
+OWNER_EMAIL = "y.mitsuhata@mseedpartner.com" 
+
 LINE_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 
 @app.route('/')
 def gmail_to_line():
     try:
-        # 1. 認証
+        # 1. 認証設定
         credentials, project = google.auth.default(
             scopes=['https://www.googleapis.com/auth/gmail.readonly']
         )
-        # 2. Gmailサービスを起動（書き方を変更しました）
-        service = build('gmail', 'v1', credentials=credentials)
+        # 2. 社長として行動する（Delegationの設定）
+        delegated_credentials = credentials.with_subject(OWNER_EMAIL)
+        service = build('gmail', 'v1', credentials=delegated_credentials)
 
-        # 3. 未読メール取得
-        results = service.users().messages().list(userId='me', q='is:unread', maxResults=1).execute()
+        # 3. 未読メール取得 (userId を 'me' から OWNER_EMAIL に変更)
+        results = service.users().messages().list(userId=OWNER_EMAIL, q='is:unread', maxResults=1).execute()
         messages = results.get('messages', [])
 
         if not messages:
-            return "未読メールはありません。待機中です。"
+            return f"未読メールはありません。({OWNER_EMAIL})"
 
         # 4. 内容取得
-        msg = service.users().messages().get(userId='me', id=messages[0]['id']).execute()
+        msg = service.users().messages().get(userId=OWNER_EMAIL, id=messages[0]['id']).execute()
         headers = msg['payload'].get('headers', [])
         subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '無題')
         
