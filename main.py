@@ -9,31 +9,29 @@ app = Flask(__name__)
 
 # ★光畑社長のメールアドレス
 OWNER_EMAIL = "y.mitsuhata@mseedpartner.com" 
-# ★サービスアカウントのメールアドレス (image_2d0ce6.pngに載っていたもの)
-SERVICE_ACCOUNT_EMAIL = "512310392497-compute@developer.gserviceaccount.com"
 
 LINE_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 
 @app.route('/')
 def gmail_to_line():
     try:
-        # 1. 認証情報を取得
+        # 1. 認証情報を取得（一番確実な方法に変更しました）
         scopes = ['https://www.googleapis.com/auth/gmail.readonly']
         credentials, project = google.auth.default(scopes=scopes)
         
-        # 2. 社長になりすますための「委任」設定を正しく作り直す
-        from google.auth import impersonated_credentials
-        delegated_credentials = impersonated_credentials.Credentials(
-            source_credentials=credentials,
-            target_principal=SERVICE_ACCOUNT_EMAIL, # ここを明示しました
-            target_scopes=scopes,
-            # ここで「社長の代わりに」と指定します
-            delegate_account=OWNER_EMAIL 
-        )
-
-        # もし上記でダメな場合、より直接的な「委任」方法を試します
+        # 2. 社長になりすます（Delegation）の設定
+        # 引数名を delegate_account ではなく subject に統一しました
         if hasattr(credentials, 'with_subject'):
             delegated_credentials = credentials.with_subject(OWNER_EMAIL)
+        else:
+            # 万が一の予備ルート
+            from google.auth import impersonated_credentials
+            delegated_credentials = impersonated_credentials.Credentials(
+                source_credentials=credentials,
+                target_principal=getattr(credentials, 'service_account_email', OWNER_EMAIL),
+                target_scopes=scopes,
+                subject=OWNER_EMAIL # ここが修正の肝です
+            )
 
         # 3. Gmailサービスを起動
         service = build('gmail', 'v1', credentials=delegated_credentials)
@@ -43,7 +41,7 @@ def gmail_to_line():
         messages = results.get('messages', [])
 
         if not messages:
-            return f"Gmailに未読メールはありません。システムは正常です。({OWNER_EMAIL})"
+            return f"Gmailに未読メールはありません。システムは正常に動いています。({OWNER_EMAIL})"
 
         # 5. 内容取得
         msg = service.users().messages().get(userId=OWNER_EMAIL, id=messages[0]['id']).execute()
@@ -61,11 +59,11 @@ def gmail_to_line():
             requests.post(url, headers=headers_line, json=payload)
             return f"成功！LINEに「{subject}」を通知しました！"
         else:
-            return "LINEトークンが見つかりません。"
+            return "LINEトークンが設定されていません。"
 
     except Exception as e:
         import traceback
-        return f"【最終解析】エラーが発生しました: {str(e)}<br><pre>{traceback.format_exc()}</pre>"
+        return f"【最終決戦エラー】: {str(e)}<br><pre>{traceback.format_exc()}</pre>"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
