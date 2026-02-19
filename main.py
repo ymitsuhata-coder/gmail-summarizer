@@ -46,7 +46,8 @@ def gmail_to_line():
             return "LINEトークンが設定されていません。"
 
     except Exception as e:
-        return f"エラーが発生しました: {str(e)}"
+        import traceback
+        return f"【解析用詳細】エラーが発生しました: {str(e)}<br><pre>{traceback.format_exc()}</pre>"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
