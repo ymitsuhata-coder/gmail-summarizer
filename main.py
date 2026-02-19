@@ -1,12 +1,13 @@
 import os
 import requests
 from googleapiclient.discovery import build
+from google.oauth2 import service_account
 import google.auth
 from flask import Flask
 
 app = Flask(__name__)
 
-# ★ここを光畑社長のメールアドレスに書き換えてください★
+# ★光畑社長のメールアドレス
 OWNER_EMAIL = "y.mitsuhata@mseedpartner.com" 
 
 LINE_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
@@ -14,20 +15,33 @@ LINE_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 @app.route('/')
 def gmail_to_line():
     try:
-        # 1. 認証設定
-        credentials, project = google.auth.default(
-            scopes=['https://www.googleapis.com/auth/gmail.readonly']
-        )
-        # 2. 社長として行動する（Delegationの設定）
-        delegated_credentials = credentials.with_subject(OWNER_EMAIL)
+        # 1. デフォルトの資格情報を取得し、明示的に委任を設定
+        scopes = ['https://www.googleapis.com/auth/gmail.readonly']
+        credentials, project = google.auth.default(scopes=scopes)
+        
+        # サービスアカウントとして社長に「なりすます」ための設定
+        # credentialsに直接 .with_subject がない場合があるため、明示的に指定します
+        if hasattr(credentials, 'with_subject'):
+            delegated_credentials = credentials.with_subject(OWNER_EMAIL)
+        else:
+            # 別の形式の認証情報だった場合の予備ルート
+            from google.auth import impersonated_credentials
+            delegated_credentials = impersonated_credentials.Credentials(
+                source_credentials=credentials,
+                target_principal=credentials.service_account_email,
+                target_scopes=scopes,
+                lifetime=3600
+            )
+
+        # 2. Gmailサービスを起動
         service = build('gmail', 'v1', credentials=delegated_credentials)
 
-        # 3. 未読メール取得 (userId を 'me' から OWNER_EMAIL に変更)
+        # 3. 未読メール取得
         results = service.users().messages().list(userId=OWNER_EMAIL, q='is:unread', maxResults=1).execute()
         messages = results.get('messages', [])
 
         if not messages:
-            return f"未読メールはありません。({OWNER_EMAIL})"
+            return f"未読メールはありませんでした。システムは正常稼働中です。({OWNER_EMAIL})"
 
         # 4. 内容取得
         msg = service.users().messages().get(userId=OWNER_EMAIL, id=messages[0]['id']).execute()
@@ -45,7 +59,7 @@ def gmail_to_line():
             requests.post(url, headers=headers_line, json=payload)
             return f"LINEに「{subject}」を通知しました！"
         else:
-            return "LINEトークンが設定されていません。"
+            return "LINEトークンが設定されていません。環境変数を確認してください。"
 
     except Exception as e:
         import traceback
